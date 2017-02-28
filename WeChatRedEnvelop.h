@@ -11,6 +11,7 @@
 @property (retain, nonatomic) NSString* m_nsFromUsr; // 发信人，可能是群或个人
 @property (retain, nonatomic) NSString* m_nsToUsr; // 收信人
 @property (assign, nonatomic) NSUInteger m_uiStatus;
+@property (retain, nonatomic) NSString* m_nsNickName; //昵称
 @property (retain, nonatomic) NSString* m_nsContent; // 消息内容
 @property (retain, nonatomic) NSString* m_nsRealChatUsr; // 群消息的发信人，具体是群里的哪个人
 @property (nonatomic) NSUInteger m_uiMessageType;
@@ -68,10 +69,6 @@
 - (void)OpenRedEnvelopesRequest:(id)params;
 @end
 
-@interface MMMsgLogicManager: NSObject
-- (id)GetCurrentLogicController;
-@end
-
 @interface CContact: NSObject
 @property(retain, nonatomic) NSString *m_nsUsrName;
 @property(retain, nonatomic) NSString *m_nsHeadImgUrl;
@@ -89,6 +86,7 @@
 
 @interface CContactMgr : NSObject
 - (id)getSelfContact;
+- (id)getContactByName:(id)arg1;
 @end
 
 @interface NSMutableDictionary (SafeInsert)

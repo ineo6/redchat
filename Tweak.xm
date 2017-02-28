@@ -1,4 +1,10 @@
 #import "WeChatRedEnvelop.h"
+#import "CBNewestMsgManager.h"
+#import "CAppViewControllerManager.h"
+#import "CBMessageHud.h"
+#import "MMMsgLogicManager.h"
+
+#define CBWeChatNewMessageNotification @"newCBMessageNotiKey" 
 
 %hook CMessageMgr
 - (void)AsyncOnAddMsg:(NSString *)msg MsgWrap:(CMessageWrap *)wrap {
@@ -56,6 +62,12 @@
 	default:
 		break;
 	}
+    
+    //用于标记消息
+    [CBNewestMsgManager sharedInstance].username = msg;
+    [CBNewestMsgManager sharedInstance].content = wrap.m_nsContent;
+    
+    [[NSNotificationCenter defaultCenter] postNotificationName:CBWeChatNewMessageNotification object:nil];
 	
 }
 %end
@@ -165,3 +177,97 @@
 
 
 %end
+
+//在聊天页面加载webview提示
+%hook BaseMsgContentViewController
+
+- (void)viewWillAppear:(BOOL)animated{
+    %orig;
+
+    NSArray *webViewViewControllers = [CBNewestMsgManager sharedInstance].webViewViewControllers;
+    if (webViewViewControllers) {
+        UIViewController* currentVC = (UIViewController *)self;
+        
+        UIButton *button = [[UIButton alloc] initWithFrame:CGRectMake(currentVC.view.frame.size.width - 50, 84, 40, 40)];
+        button.backgroundColor = [UIColor greenColor];
+        
+        UIImage *image = [UIImage imageWithContentsOfFile:[[NSBundle mainBundle] pathForResource:@"Icon@2x" ofType:@"png"]];
+        [button setImage:image forState:UIControlStateNormal];
+        [button addTarget:self action:@selector(backToWebViewController) forControlEvents:UIControlEventTouchUpInside];
+        [currentVC.view addSubview:button];
+    }
+}
+
+%new
+- (void)backToWebViewController{
+    NSArray *webViewViewControllers = [CBNewestMsgManager sharedInstance].webViewViewControllers;
+    if (webViewViewControllers) {
+        [[%c(CAppViewControllerManager) getCurrentNavigationController] setViewControllers:webViewViewControllers animated:YES];
+        [CBNewestMsgManager sharedInstance].webViewViewControllers = nil;
+    }
+}
+
+%end
+
+//webview中打开开关
+%hook MMWebViewController
+
+- (void)viewDidLoad{
+    %orig;
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(cb_didReceiveNewMessage) name:CBWeChatNewMessageNotification object:nil];
+}
+
+
+%new
+- (void)cb_didReceiveNewMessage{
+    UIViewController* currentVC = [%c(CAppViewControllerManager) topViewControllerOfWindow:[UIApplication sharedApplication].keyWindow];
+    if (![currentVC isKindOfClass:%c(MMWebViewController)])
+    {
+        return;
+    }
+    NSString *username = [CBNewestMsgManager sharedInstance].username;
+    NSString *content = [CBNewestMsgManager sharedInstance].content;
+
+    CContactMgr *contactMgr = [[objc_getClass("MMServiceCenter") defaultCenter] getService:[objc_getClass("CContactMgr") class]];
+        CContact *contact = [contactMgr getContactByName:username];
+    dispatch_async(dispatch_get_main_queue(), ^{
+        NSString *text = [NSString stringWithFormat:@"%@: %@",contact.m_nsNickName, content];
+        UIButton* hud = [CBMessageHud showHUDInView:currentVC.view text:text target:self action:@selector(backToMsgContentViewController:)];
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(5 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [hud removeFromSuperview];
+        });
+    });
+}
+
+%new
+- (void)backToMsgContentViewController:(id)button{
+    [(UIButton*)button removeFromSuperview];
+    UIViewController* currentVC = (UIViewController *)self;;
+    if (![currentVC isKindOfClass:%c(MMWebViewController)])
+    {
+        NSLog(@"current is  msg");
+        return ;
+    }
+    
+    // 返回聊天界面 ViewController 前记录当前 navigationController 的 VC 堆栈，以便快速返回
+    NSArray *webViewViewControllers = [(UINavigationController *)[%c(CAppViewControllerManager) getCurrentNavigationController] viewControllers];
+    [CBNewestMsgManager sharedInstance].webViewViewControllers = webViewViewControllers;
+    
+    // 返回 rootViewController
+    UINavigationController *navVC = [%c(CAppViewControllerManager) getCurrentNavigationController];
+    [navVC popToRootViewControllerAnimated:NO];
+    
+    
+    // 进入聊天界面 ViewController
+    NSString *username = [CBNewestMsgManager sharedInstance].username;
+    CContactMgr *contactMgr = [[%c(MMServiceCenter) defaultCenter] getService:[%c(CContactMgr) class]];
+    CContact *contact = [contactMgr getContactByName:username];
+    MMMsgLogicManager *logicMgr = [[%c(MMServiceCenter) defaultCenter] getService:[%c(MMMsgLogicManager) class]];
+    
+    NSLog(@"push to msg");
+    [logicMgr PushOtherBaseMsgControllerByContact:contact navigationController:navVC animated:YES];
+}
+
+%end
+
